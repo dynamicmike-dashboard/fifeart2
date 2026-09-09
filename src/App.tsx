@@ -20,6 +20,7 @@ import { LegalModal, LegalTab } from './components/LegalModal';
 import { TeableSyncModal } from './components/TeableSyncModal';
 import { Artwork, SortOption, CurrencyCode, FaqItem, AboutContent, LegalContent } from './types';
 import { StorageService } from './services/storage';
+import { fetchArtworksFromSanity, isSanityConfigured } from './services/sanity';
 import { SeoService } from './services/seoService';
 import { Sparkles, RefreshCw, Palette, Heart, Table, Lock } from 'lucide-react';
 
@@ -94,10 +95,31 @@ export default function App() {
   // FAQs state for homepage and AEO / Schema.org
   const [faqs, setFaqs] = useState<FaqItem[]>(() => SeoService.getFaqs());
 
-  // Initialize artworks from storage
+  // Initialize artworks: Sanity (server) first, localStorage as offline fallback.
+  // Placeholders are never seeded — fresh visitors with no server data see
+  // the empty-catalog state instead of demo images.
   useEffect(() => {
-    const loaded = StorageService.getArtworks();
-    setArtworks(loaded);
+    let cancelled = false;
+    (async () => {
+      if (isSanityConfigured()) {
+        try {
+          const remote = await fetchArtworksFromSanity();
+          if (!cancelled) {
+            setArtworks(remote);
+            StorageService.saveArtworks(remote);
+            return;
+          }
+        } catch (e) {
+          console.warn('Sanity fetch failed, falling back to local storage', e);
+        }
+      }
+      if (!cancelled) {
+        setArtworks(StorageService.getArtworks());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Synchronize SEO, Geo tags, OpenGraph & Schema.org JSON-LD graph to DOM

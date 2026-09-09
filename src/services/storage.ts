@@ -38,15 +38,12 @@ export const StorageService = {
         }
       }
     } catch (e) {
-      console.warn('Failed to parse stored artworks, using defaults', e);
+      console.warn('Failed to parse stored artworks', e);
     }
-    // If user explicitly cleared placeholders, do not resurrect INITIAL_ARTWORKS
-    if (localStorage.getItem(STORAGE_KEY_CLEARED_PLACEHOLDERS) === 'true') {
-      return [];
-    }
-    // Initialize with default catalog only if nothing exists in storage yet
-    localStorage.setItem(STORAGE_KEY_ARTWORKS, JSON.stringify(INITIAL_ARTWORKS));
-    return INITIAL_ARTWORKS;
+    // Never auto-seed placeholder catalog: the server (Sanity) is the source
+    // of truth. An empty array renders the empty-catalog state instead of
+    // resurrecting demo Unsplash images on every fresh browser/device.
+    return [];
   },
 
   saveArtworks(artworks: Artwork[]): void {
