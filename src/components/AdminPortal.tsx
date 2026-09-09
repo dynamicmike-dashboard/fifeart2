@@ -20,7 +20,7 @@ import {
   Award,
 } from 'lucide-react';
 import { Artwork, ArtworkStatus, Enquiry } from '../types';
-import { StorageService, DEFAULT_ADMIN_PASSWORD } from '../services/storage';
+import { StorageService, DEFAULT_ADMIN_PASSWORD, IS_CUSTOM_ADMIN_PASSWORD_SET } from '../services/storage';
 import { AVAILABLE_TAGS, STATUS_OPTIONS } from '../data/sampleArtworks';
 
 interface AdminPortalProps {
@@ -322,9 +322,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 Access Studio Portal
               </button>
 
-              <p className="text-[11px] text-stone-400">
-                Default password for demonstration: <code className="text-stone-700 font-mono">{DEFAULT_ADMIN_PASSWORD}</code>
-              </p>
+              {IS_CUSTOM_ADMIN_PASSWORD_SET ? (
+                <p className="text-[11px] text-stone-500 text-center">
+                  Protected: Authorized password configured via environment variable (<code className="font-mono text-stone-700">VITE_ADMIN_PASSWORD</code>).
+                </p>
+              ) : (
+                <p className="text-[11px] text-stone-400 text-center">
+                  Default password for demonstration: <code className="text-stone-700 font-mono">{DEFAULT_ADMIN_PASSWORD}</code>
+                </p>
+              )}
             </form>
           </div>
         ) : (
