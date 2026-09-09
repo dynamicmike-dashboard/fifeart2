@@ -1,0 +1,6 @@
+{
+  "name": "Fife Art",
+  "description": "Original Scottish paintings, coastal landscapes, and wildlife art by Fife Art. Browse curated original artworks with enquiry to buy.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
