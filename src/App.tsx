@@ -14,10 +14,14 @@ import { AdminPortal } from './components/AdminPortal';
 import { ViewOnWallModal } from './components/ViewOnWallModal';
 import { CertificateModal } from './components/CertificateModal';
 import { Pagination } from './components/Pagination';
+import { FaqSection } from './components/FaqSection';
 import { Footer } from './components/Footer';
-import { Artwork, SortOption, CurrencyCode } from './types';
+import { LegalModal, LegalTab } from './components/LegalModal';
+import { TeableSyncModal } from './components/TeableSyncModal';
+import { Artwork, SortOption, CurrencyCode, FaqItem, AboutContent, LegalContent } from './types';
 import { StorageService } from './services/storage';
-import { Sparkles, RefreshCw, Palette, Heart } from 'lucide-react';
+import { SeoService } from './services/seoService';
+import { Sparkles, RefreshCw, Palette, Heart, Table, Lock } from 'lucide-react';
 
 const FAVORITES_STORAGE_KEY = 'fifeart_favorites_v1';
 
@@ -55,6 +59,21 @@ export default function App() {
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isWallViewOpen, setIsWallViewOpen] = useState(false);
   const [isCertificateOpen, setIsCertificateOpen] = useState(false);
+  const [isTeableSyncOpen, setIsTeableSyncOpen] = useState(false);
+  const [isLegalOpen, setIsLegalOpen] = useState(false);
+  const [legalTab, setLegalTab] = useState<LegalTab>('disclaimer');
+
+  // Dynamic Content (About Me & Legal Policies)
+  const [aboutContent, setAboutContent] = useState<AboutContent>(() => StorageService.getAboutContent());
+  const [legalContent, setLegalContent] = useState<LegalContent>(() => StorageService.getLegalContent());
+
+  // Check if the catalog contains demo/placeholder artworks
+  const hasPlaceholderData = useMemo(() => {
+    return (
+      artworks.length > 0 &&
+      artworks.some((a) => a.imageUrl.includes('unsplash.com') || a.id.startsWith('faf-'))
+    );
+  }, [artworks]);
 
   // Save favorites to localStorage
   useEffect(() => {
@@ -72,11 +91,20 @@ export default function App() {
     );
   };
 
+  // FAQs state for homepage and AEO / Schema.org
+  const [faqs, setFaqs] = useState<FaqItem[]>(() => SeoService.getFaqs());
+
   // Initialize artworks from storage
   useEffect(() => {
     const loaded = StorageService.getArtworks();
     setArtworks(loaded);
   }, []);
+
+  // Synchronize SEO, Geo tags, OpenGraph & Schema.org JSON-LD graph to DOM
+  useEffect(() => {
+    const seoSettings = SeoService.getSeoSettings();
+    SeoService.applySeoToDom(seoSettings, artworks, faqs);
+  }, [artworks, faqs]);
 
   // Keyboard shortcut listener (Alt+A for hidden admin, Escape for modals)
   useEffect(() => {
@@ -204,11 +232,6 @@ export default function App() {
     setIsCertificateOpen(true);
   };
 
-  const handleSeed226Catalog = () => {
-    const full = StorageService.populateFull226Inventory();
-    setArtworks(full);
-  };
-
   const handleResetFilters = () => {
     setSearchQuery('');
     setSelectedTag('All');
@@ -225,6 +248,7 @@ export default function App() {
         onOpenAbout={() => setIsAboutOpen(true)}
         onOpenGeneralEnquiry={handleOpenGeneralEnquiry}
         onOpenAdmin={() => setIsAdminOpen(true)}
+        hasPlaceholderData={hasPlaceholderData}
         totalArtworksCount={artworks.length}
         currency={currency}
         onCurrencyChange={setCurrency}
@@ -234,25 +258,25 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8">
         {/* Subtle Artist Intro Banner */}
-        <section className="pt-8 pb-4 text-center sm:text-left flex flex-col sm:flex-row sm:items-end justify-between border-b border-stone-200/60 gap-4">
-          <div>
-            <h1 className="font-serif text-3xl sm:text-4xl md:text-5xl font-medium tracking-tight text-stone-900 leading-tight">
+        <section className="pt-6 sm:pt-8 pb-4 text-center sm:text-left flex flex-col sm:flex-row sm:items-end justify-between border-b border-stone-200/60 gap-3 sm:gap-4">
+          <div className="min-w-0">
+            <h1 className="font-serif text-2xl sm:text-4xl md:text-5xl font-medium tracking-tight text-stone-900 leading-tight">
               Original Paintings by Fife Art
             </h1>
-            <p className="text-stone-600 text-sm sm:text-base max-w-2xl mt-2 leading-relaxed">
+            <p className="text-stone-600 text-xs sm:text-base max-w-2xl mt-1.5 sm:mt-2 leading-relaxed">
               Hand-painted original works inspired by the historic Kirkcaldy coastline, Scottish wildlife, and the ever-shifting light across the Firth of Forth.
             </p>
           </div>
 
-          <div className="flex items-center space-x-3 text-xs text-stone-500 self-center sm:self-auto">
-            <span className="inline-flex items-center space-x-1 bg-stone-100 px-3 py-1.5 rounded-full">
-              <Sparkles className="w-3.5 h-3.5 text-amber-700" />
-              <span>Acrylics & Oils, watercolour and sketches</span>
+          <div className="flex items-center flex-wrap gap-2 text-xs text-stone-500 justify-center sm:justify-start shrink-0">
+            <span className="inline-flex items-center space-x-1 bg-stone-100 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[11px] sm:text-xs">
+              <Sparkles className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+              <span>Acrylics, Oils & Watercolours</span>
             </span>
-            <span className="inline-flex items-center space-x-1 bg-stone-100 px-3 py-1.5 rounded-full">
-              <span>Framed & Canvas Works</span>
+            <span className="inline-flex items-center space-x-1 bg-stone-100 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-[11px] sm:text-xs">
+              <span>Original Scottish Art</span>
             </span>
           </div>
         </section>
@@ -273,7 +297,6 @@ export default function App() {
           totalAll={artworks.length}
           startIndex={startIndex}
           endIndex={endIndex}
-          onSeed226={handleSeed226Catalog}
         />
 
         {/* Favorites Notice Banner if in Favorites View */}
@@ -285,7 +308,7 @@ export default function App() {
             </div>
             <button
               onClick={() => setIsFavoritesOnly(false)}
-              className="text-rose-900 font-semibold underline hover:text-rose-950"
+              className="text-rose-900 font-semibold underline hover:text-rose-950 cursor-pointer"
             >
               Show all paintings
             </button>
@@ -312,24 +335,53 @@ export default function App() {
             ))}
           </div>
         ) : (
-          /* Empty Search / Filter State */
+          /* Empty Catalog or Filter State */
           <div className="py-20 text-center space-y-4 max-w-md mx-auto">
             <div className="w-12 h-12 rounded-full bg-stone-100 text-stone-400 flex items-center justify-center mx-auto">
               <Palette className="w-6 h-6" />
             </div>
-            <h3 className="font-serif text-xl font-medium text-stone-900">
-              No paintings found
-            </h3>
-            <p className="text-xs text-stone-500 leading-relaxed">
-              We couldn't find any artwork matching your current search or tag filters. Try selecting "All" or clearing the search terms.
-            </p>
-            <button
-              onClick={handleResetFilters}
-              className="inline-flex items-center space-x-1.5 px-4 py-2 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-800 transition-colors shadow-2xs cursor-pointer"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Reset All Filters</span>
-            </button>
+            {artworks.length === 0 ? (
+              <>
+                <h3 className="font-serif text-xl font-medium text-stone-900">
+                  Gallery Catalog Is Empty
+                </h3>
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  Your artworks catalog currently has no items. You can import your original Teable inventory CSV or add new paintings in the Studio Admin.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  <button
+                    onClick={() => setIsTeableSyncOpen(true)}
+                    className="inline-flex items-center space-x-1.5 px-4 py-2 bg-amber-700 text-white rounded-xl text-xs font-medium hover:bg-amber-800 transition-colors shadow-2xs cursor-pointer"
+                  >
+                    <Table className="w-3.5 h-3.5 mr-1" />
+                    <span>Import Teable Inventory</span>
+                  </button>
+                  <button
+                    onClick={() => setIsAdminOpen(true)}
+                    className="inline-flex items-center space-x-1.5 px-4 py-2 bg-stone-900 text-white rounded-xl text-xs font-medium hover:bg-stone-800 transition-colors shadow-2xs cursor-pointer"
+                  >
+                    <Lock className="w-3.5 h-3.5 mr-1" />
+                    <span>Open Studio Admin</span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="font-serif text-xl font-medium text-stone-900">
+                  No paintings found
+                </h3>
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  We couldn't find any artwork matching your current search or tag filters. Try selecting "All" or clearing the search terms.
+                </p>
+                <button
+                  onClick={handleResetFilters}
+                  className="inline-flex items-center space-x-1.5 px-4 py-2 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-800 transition-colors shadow-2xs cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Reset All Filters</span>
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -345,11 +397,21 @@ export default function App() {
         />
       </main>
 
+      {/* Homepage Footer FAQ Section (AEO & GEO optimized) */}
+      <FaqSection
+        faqs={faqs}
+        onOpenEnquiry={handleOpenGeneralEnquiry}
+      />
+
       {/* Footer */}
       <Footer
         onOpenAdmin={() => setIsAdminOpen(true)}
         onOpenEnquiry={handleOpenGeneralEnquiry}
         onOpenAbout={() => setIsAboutOpen(true)}
+        onOpenLegal={(tab) => {
+          setLegalTab(tab);
+          setIsLegalOpen(true);
+        }}
       />
 
       {/* MODAL 1: Detail Lightbox View */}
@@ -400,6 +462,7 @@ export default function App() {
       {/* MODAL 5: About the Artist */}
       <AboutArtistModal
         isOpen={isAboutOpen}
+        content={aboutContent}
         onClose={() => setIsAboutOpen(false)}
         onOpenEnquiry={handleOpenGeneralEnquiry}
       />
@@ -411,6 +474,27 @@ export default function App() {
         artworks={artworks}
         onArtworksUpdated={(updated) => setArtworks(updated)}
         onGenerateCertificate={handleOpenCertificate}
+        onFaqsUpdated={(updated) => setFaqs(updated)}
+        onAboutContentUpdated={(updated) => setAboutContent(updated)}
+        onLegalContentUpdated={(updated) => setLegalContent(updated)}
+      />
+
+      {/* MODAL 7: Legal Policies & Art Representation Disclaimer */}
+      <LegalModal
+        isOpen={isLegalOpen}
+        initialTab={legalTab}
+        content={legalContent}
+        onClose={() => setIsLegalOpen(false)}
+        onOpenEnquiry={handleOpenGeneralEnquiry}
+      />
+
+      {/* MODAL 8: Teable Database Sync & Inventory Import */}
+      <TeableSyncModal
+        isOpen={isTeableSyncOpen}
+        onClose={() => setIsTeableSyncOpen(false)}
+        onArtworksUpdated={(updated) => setArtworks(updated)}
+        currentCount={artworks.length}
+        hasPlaceholderData={hasPlaceholderData}
       />
     </div>
   );

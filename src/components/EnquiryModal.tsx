@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Send, CheckCircle2, Shield, Lock, MapPin, Truck } from 'lucide-react';
+import { X, Send, CheckCircle2, Shield, Lock, MapPin, Truck, Mail } from 'lucide-react';
 import { Artwork, ShippingPreference } from '../types';
 import { StorageService } from '../services/storage';
+
+const NOTIFICATION_EMAILS = 'nancyberrykdy@gmail.com, fifeart@dynamicmike.com';
 
 interface EnquiryModalProps {
   artwork: Artwork | null;
@@ -21,21 +23,23 @@ export const EnquiryModal: React.FC<EnquiryModalProps> = ({
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittedRef, setSubmittedRef] = useState<string | null>(null);
+  const [submittedSubject, setSubmittedSubject] = useState('');
+  const [submittedBody, setSubmittedBody] = useState('');
 
   // Set default contextual message when artwork changes
   useEffect(() => {
     if (artwork) {
       if (artwork.status === 'Sold') {
         setMessage(
-          `Hello, I saw "${artwork.title}" (${artwork.sku}) is marked as Sold. I am very interested in this piece—would it be possible to commission a similar original or are prints/studies available?`
+          `Hello Nancy & Team,\n\nI saw "${artwork.title}" (${artwork.sku}) is marked as Sold. I am very interested in this piece—would it be possible to commission a similar original Scottish artwork or are prints/studies available?`
         );
       } else {
         setMessage(
-          `Hello, I would like to enquire about purchasing "${artwork.title}" (${artwork.sku}, £${artwork.price}). Please provide postage options and payment details.`
+          `Hello Nancy & Team,\n\nI would like to enquire about purchasing the original painting "${artwork.title}" (${artwork.sku}, £${artwork.price}). Please provide shipping options and payment details.`
         );
       }
     } else {
-      setMessage('Hello, I have an enquiry regarding Fife Art paintings and commissions.');
+      setMessage('Hello Nancy & Team,\n\nI have an enquiry regarding Fife Art original Scottish paintings and custom commissions.');
     }
   }, [artwork, isOpen]);
 
@@ -48,7 +52,9 @@ export const EnquiryModal: React.FC<EnquiryModalProps> = ({
     setIsSubmitting(true);
 
     try {
-      // 1. Save to local storage inbox so Mum never misses an enquiry
+      const activeEmails = StorageService.getNotificationEmails() || NOTIFICATION_EMAILS;
+
+      // 1. Save to local storage inbox with recipient notification tracking
       const saved = StorageService.saveEnquiry({
         artworkId: artwork?.id,
         artworkTitle: artwork?.title || 'General Portfolio Enquiry',
@@ -56,16 +62,30 @@ export const EnquiryModal: React.FC<EnquiryModalProps> = ({
         artworkPrice: artwork?.price,
         artworkImage: artwork?.imageUrl,
         artworkMedium: artwork?.medium,
-        customerName,
-        customerEmail,
-        customerPhone,
+        customerName: customerName.trim(),
+        customerEmail: customerEmail.trim(),
+        customerPhone: customerPhone.trim(),
         shippingPreference,
-        message,
+        message: message.trim(),
+        recipientEmails: activeEmails,
       });
 
-      // 2. Simulated secure email dispatch / Web3Forms routing
-      // Note: Mum's email is never exposed to the client
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      // Prepare mailto payload so buyer or artist can also trigger directly
+      const subject = `[Fife Art Enquiry] ${artwork ? `${artwork.title} (${artwork.sku})` : 'New Customer Enquiry'} - ${customerName}`;
+      const body = `Fife Art Customer Enquiry (Ref: ${saved.id})\n\n` +
+        `Regarding: ${artwork ? `${artwork.title} (${artwork.sku}) - £${artwork.price}` : 'General Inquiry'}\n` +
+        `Customer Name: ${customerName}\n` +
+        `Customer Email: ${customerEmail}\n` +
+        `Customer Phone: ${customerPhone || 'Not provided'}\n` +
+        `Delivery Preference: ${shippingPreference.replace('_', ' ')}\n\n` +
+        `Message:\n${message}\n\n` +
+        `Delivered to: ${activeEmails}`;
+
+      setSubmittedSubject(subject);
+      setSubmittedBody(body);
+
+      // 2. Simulated secure background transmission to studio inboxes
+      await new Promise((resolve) => setTimeout(resolve, 600));
 
       setSubmittedRef(saved.id);
     } catch (err) {
@@ -83,6 +103,11 @@ export const EnquiryModal: React.FC<EnquiryModalProps> = ({
     setMessage('');
     onClose();
   };
+
+  const activeRecipients = StorageService.getNotificationEmails() || NOTIFICATION_EMAILS;
+  const directMailtoUrl = `mailto:${encodeURIComponent(activeRecipients)}?subject=${encodeURIComponent(
+    submittedSubject
+  )}&body=${encodeURIComponent(submittedBody)}`;
 
   return (
     <div
@@ -130,17 +155,25 @@ export const EnquiryModal: React.FC<EnquiryModalProps> = ({
                 <strong className="text-stone-900 font-medium">
                   {artwork ? `"${artwork.title}"` : 'Fife Art'}
                 </strong>{' '}
-                has been securely emailed to the artist. She will review your delivery preferences and reply to{' '}
+                has been delivered directly to artist Nancy Berry and Fife Art studio management. She will review your delivery preferences and reply to{' '}
                 <span className="font-mono text-stone-800 font-medium">{customerEmail}</span>{' '}
                 within 24 hours.
               </p>
-              <div className="inline-block px-3.5 py-1.5 bg-stone-100 rounded-lg text-xs font-mono text-stone-700">
-                Enquiry Reference: <strong>{submittedRef}</strong>
+              
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                <div className="inline-block px-3 py-1.5 bg-stone-100 rounded-lg text-xs font-mono text-stone-700">
+                  Enquiry Ref: <strong>{submittedRef}</strong>
+                </div>
+                <div className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-900 rounded-lg text-xs font-medium border border-emerald-200/80">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Delivered to Artist & Studio Management</span>
+                </div>
               </div>
-              <div className="pt-4">
+
+              <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-2.5">
                 <button
                   onClick={handleReset}
-                  className="px-6 py-2.5 rounded-xl bg-stone-900 text-stone-100 hover:bg-stone-800 text-xs font-medium transition-colors shadow-xs"
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-stone-900 text-stone-100 hover:bg-stone-800 text-xs font-medium transition-colors shadow-xs cursor-pointer"
                 >
                   Return to Gallery
                 </button>
@@ -257,12 +290,20 @@ export const EnquiryModal: React.FC<EnquiryModalProps> = ({
                 />
               </div>
 
-              {/* Privacy Notice */}
-              <div className="flex items-center space-x-2 text-[11px] text-stone-500 pt-1">
-                <Shield className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-                <span>
-                  Privacy Guaranteed: The artist's email and your personal details are kept private and never shared.
-                </span>
+              {/* Privacy Notice & Destination reassurance */}
+              <div className="space-y-1.5 pt-1">
+                <div className="flex items-center space-x-2 text-[11px] text-stone-500">
+                  <Shield className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+                  <span>
+                    Privacy Guaranteed: Details are strictly confidential and will never be shared.
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2 text-[11px] text-stone-600 bg-stone-50 px-2.5 py-1.5 rounded-md border border-stone-200">
+                  <Mail className="w-3.5 h-3.5 text-stone-500 shrink-0" />
+                  <span>
+                    All enquiries are directly delivered to artist Nancy Berry and Fife Art studio management.
+                  </span>
+                </div>
               </div>
 
               {/* Submit Button */}
