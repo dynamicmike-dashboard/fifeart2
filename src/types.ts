@@ -1,4 +1,4 @@
-export type ArtworkStatus = 'Available' | 'Sold' | 'On Order' | 'Two Sizes' | 'Discounted';
+export type ArtworkStatus = 'Available' | 'Sold' | 'On Order' | 'Two Sizes' | 'Discounted' | 'Not for Sale';
 
 export type CurrencyCode = 'GBP' | 'USD' | 'EUR';
 
