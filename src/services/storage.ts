@@ -5,7 +5,12 @@ const STORAGE_KEY_ARTWORKS = 'fifeart_catalog_v1';
 const STORAGE_KEY_ENQUIRIES = 'fifeart_enquiries_v1';
 const STORAGE_KEY_ADMIN_PASS = 'fifeart_admin_password';
 
-export const DEFAULT_ADMIN_PASSWORD = 'fifeart-studio';
+export const DEFAULT_ADMIN_PASSWORD =
+  (import.meta.env.VITE_ADMIN_PASSWORD as string | undefined)?.trim() || 'fifeart-studio';
+
+export const IS_CUSTOM_ADMIN_PASSWORD_SET = Boolean(
+  (import.meta.env.VITE_ADMIN_PASSWORD as string | undefined)?.trim()
+);
 
 export const StorageService = {
   getArtworks(): Artwork[] {
@@ -218,8 +223,12 @@ export const StorageService = {
 
   // Password Verification
   verifyAdminPassword(password: string): boolean {
+    if (IS_CUSTOM_ADMIN_PASSWORD_SET) {
+      // If configured via Vercel env var, verify directly against the env var
+      return password.trim() === DEFAULT_ADMIN_PASSWORD;
+    }
     const saved = localStorage.getItem(STORAGE_KEY_ADMIN_PASS) || DEFAULT_ADMIN_PASSWORD;
-    return password === saved;
+    return password.trim() === saved;
   },
 
   setAdminPassword(newPassword: string): void {
