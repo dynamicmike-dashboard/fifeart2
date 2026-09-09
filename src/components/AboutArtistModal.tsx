@@ -1,18 +1,24 @@
 import React from 'react';
-import { X, MapPin, Heart, Sparkles, Mail } from 'lucide-react';
+import { X, MapPin, Sparkles } from 'lucide-react';
+import { AboutContent } from '../types';
+import { StorageService } from '../services/storage';
 
 interface AboutArtistModalProps {
   isOpen: boolean;
+  content?: AboutContent;
   onClose: () => void;
   onOpenEnquiry: () => void;
 }
 
 export const AboutArtistModal: React.FC<AboutArtistModalProps> = ({
   isOpen,
+  content,
   onClose,
   onOpenEnquiry,
 }) => {
   if (!isOpen) return null;
+
+  const about = content || StorageService.getAboutContent();
 
   return (
     <div
@@ -32,7 +38,7 @@ export const AboutArtistModal: React.FC<AboutArtistModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-200 transition-colors"
+            className="p-1.5 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-200 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -41,21 +47,26 @@ export const AboutArtistModal: React.FC<AboutArtistModalProps> = ({
         <div className="p-6 sm:p-8 space-y-6">
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
             <img
-              src="https://images.unsplash.com/photo-1544816155-12df9643f363?auto=format&fit=crop&w=600&q=80"
-              alt="Artist in Fife Studio"
+              src={about.photoUrl}
+              alt={about.artistName}
               className="w-28 h-28 sm:w-32 sm:h-32 rounded-2xl object-cover shadow-md border-2 border-stone-200 shrink-0"
             />
             <div>
               <h3 className="font-serif text-2xl sm:text-3xl font-medium text-stone-900 leading-tight">
-                About the Artist
+                About {about.artistName}
               </h3>
               <div className="flex items-center space-x-1.5 text-xs text-stone-500 mt-1">
                 <MapPin className="w-3.5 h-3.5 text-amber-700" />
-                <span>Based in Kirkcaldy, Fife, Scotland</span>
+                <span>{about.location}</span>
               </div>
               <p className="text-stone-700 text-sm leading-relaxed mt-3">
-                Working from an independent home studio in Kirkcaldy overlooking the tidal waters of the Firth of Forth, my art captures the extraordinary natural heritage of Scotland—from our beloved puffin colonies on the Isle of May to windswept Fife coastal paths, historic harbour shores, and wild highland fauna.
+                {about.bioParagraph1}
               </p>
+              {about.bioParagraph2 && (
+                <p className="text-stone-700 text-sm leading-relaxed mt-2">
+                  {about.bioParagraph2}
+                </p>
+              )}
             </div>
           </div>
 
@@ -64,20 +75,22 @@ export const AboutArtistModal: React.FC<AboutArtistModalProps> = ({
               Mediums & Approach
             </h4>
             <p>
-              Every artwork is an authentic original painted using fine artist-grade acrylics and oils on heavy stretched linen or primed boards. Layered textures and confident brushwork allow light to dance across the canvas, celebrating the raw, atmospheric weather shifts unique to the Scottish coast.
+              {about.mediumsApproach}
             </p>
-            <p>
-              Original works are finished with museum-quality UV varnish to safeguard pigments against fading. Each canvas is signed by hand and shipped with a Certificate of Authenticity.
-            </p>
+            {about.protectionNote && (
+              <p>
+                {about.protectionNote}
+              </p>
+            )}
           </div>
 
           <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/70 flex items-center justify-between gap-4">
             <div>
               <div className="text-xs font-semibold text-stone-900">
-                Interested in a custom painting or commission?
+                {about.commissionPromptTitle}
               </div>
               <div className="text-[11px] text-stone-600 mt-0.5">
-                Pet portraits, favourite Scottish landscapes, or specific canvas sizes welcome.
+                {about.commissionPromptSubtitle}
               </div>
             </div>
             <button
@@ -85,7 +98,7 @@ export const AboutArtistModal: React.FC<AboutArtistModalProps> = ({
                 onClose();
                 onOpenEnquiry();
               }}
-              className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg text-xs font-medium shrink-0 transition-colors shadow-2xs"
+              className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-lg text-xs font-medium shrink-0 transition-colors shadow-2xs cursor-pointer"
             >
               Send Enquiry
             </button>
@@ -95,3 +108,4 @@ export const AboutArtistModal: React.FC<AboutArtistModalProps> = ({
     </div>
   );
 };
+

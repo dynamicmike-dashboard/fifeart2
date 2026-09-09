@@ -1,9 +1,14 @@
-import { Artwork, ArtworkStatus, Enquiry } from '../types';
+import { Artwork, ArtworkStatus, Enquiry, AboutContent, LegalContent } from '../types';
 import { INITIAL_ARTWORKS } from '../data/sampleArtworks';
+import { parseArtworksImport, ParseResult } from '../utils/artworkParser';
+import { DEFAULT_ABOUT_CONTENT, DEFAULT_LEGAL_CONTENT } from '../data/contentDefaults';
 
 const STORAGE_KEY_ARTWORKS = 'fifeart_catalog_v1';
 const STORAGE_KEY_ENQUIRIES = 'fifeart_enquiries_v1';
 const STORAGE_KEY_ADMIN_PASS = 'fifeart_admin_password';
+const STORAGE_KEY_CLEARED_PLACEHOLDERS = 'fifeart_cleared_placeholders';
+const STORAGE_KEY_ABOUT = 'fifeart_about_content_v1';
+const STORAGE_KEY_LEGAL = 'fifeart_legal_content_v1';
 
 export const DEFAULT_ADMIN_PASSWORD =
   (import.meta.env.VITE_ADMIN_PASSWORD as string | undefined)?.trim() || 'fifeart-studio';
@@ -13,26 +18,33 @@ export const IS_CUSTOM_ADMIN_PASSWORD_SET = Boolean(
 );
 
 export const StorageService = {
+  isPlaceholderArtwork(artwork: Artwork): boolean {
+    return (
+      artwork.id.startsWith('faf-base-') ||
+      artwork.id.startsWith('faf-sample-') ||
+      artwork.id.startsWith('faf-gen-') ||
+      artwork.imageUrl.includes('images.unsplash.com') ||
+      artwork.imageUrl.includes('photo-1544816155-12df9643f363')
+    );
+  },
+
   getArtworks(): Artwork[] {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_ARTWORKS);
-      if (stored) {
+      if (stored !== null) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const existingIds = new Set(parsed.map((a: Artwork) => a.id));
-          const missingDefaults = INITIAL_ARTWORKS.filter((a) => !existingIds.has(a.id));
-          if (missingDefaults.length > 0) {
-            const merged = [...parsed, ...missingDefaults];
-            localStorage.setItem(STORAGE_KEY_ARTWORKS, JSON.stringify(merged));
-            return merged;
-          }
+        if (Array.isArray(parsed)) {
           return parsed;
         }
       }
     } catch (e) {
       console.warn('Failed to parse stored artworks, using defaults', e);
     }
-    // Initialize with default catalog if nothing in storage
+    // If user explicitly cleared placeholders, do not resurrect INITIAL_ARTWORKS
+    if (localStorage.getItem(STORAGE_KEY_CLEARED_PLACEHOLDERS) === 'true') {
+      return [];
+    }
+    // Initialize with default catalog only if nothing exists in storage yet
     localStorage.setItem(STORAGE_KEY_ARTWORKS, JSON.stringify(INITIAL_ARTWORKS));
     return INITIAL_ARTWORKS;
   },
@@ -40,9 +52,39 @@ export const StorageService = {
   saveArtworks(artworks: Artwork[]): void {
     try {
       localStorage.setItem(STORAGE_KEY_ARTWORKS, JSON.stringify(artworks));
+      // If saving an empty or custom list, prevent default sample re-injection
+      if (artworks.length === 0 || !artworks.some((a) => this.isPlaceholderArtwork(a))) {
+        localStorage.setItem(STORAGE_KEY_CLEARED_PLACEHOLDERS, 'true');
+      }
     } catch (e) {
       console.error('Storage full or error saving artworks', e);
     }
+  },
+
+  clearAllArtworks(): Artwork[] {
+    try {
+      localStorage.setItem(STORAGE_KEY_ARTWORKS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEY_CLEARED_PLACEHOLDERS, 'true');
+    } catch (e) {
+      console.error('Error clearing artworks catalog', e);
+    }
+    return [];
+  },
+
+  removePlaceholderArtworks(): Artwork[] {
+    const current = this.getArtworks();
+    const kept = current.filter((a) => !this.isPlaceholderArtwork(a));
+    this.saveArtworks(kept);
+    localStorage.setItem(STORAGE_KEY_CLEARED_PLACEHOLDERS, 'true');
+    return kept;
+  },
+
+  deleteMultipleArtworks(ids: string[]): Artwork[] {
+    const idSet = new Set(ids);
+    const artworks = this.getArtworks();
+    const filtered = artworks.filter((a) => !idSet.has(a.id));
+    this.saveArtworks(filtered);
+    return filtered;
   },
 
   addArtwork(artwork: Omit<Artwork, 'id' | 'createdAt'>): Artwork {
@@ -193,7 +235,26 @@ export const StorageService = {
     });
   },
 
-  // Inquiries
+  // Inquiries & Notification Emails
+  getNotificationEmails(): string {
+    const defaultEmails = 'nancyberrykdy@gmail.com, fifeart@dynamicmike.com';
+    try {
+      const stored = localStorage.getItem('fifeart_notification_emails');
+      if (stored && stored.trim()) return stored;
+    } catch (e) {
+      console.warn('Failed to read notification emails', e);
+    }
+    return defaultEmails;
+  },
+
+  setNotificationEmails(emails: string): void {
+    try {
+      localStorage.setItem('fifeart_notification_emails', emails.trim());
+    } catch (e) {
+      console.error('Failed to save notification emails', e);
+    }
+  },
+
   getEnquiries(): Enquiry[] {
     try {
       const stored = localStorage.getItem(STORAGE_KEY_ENQUIRIES);
@@ -206,11 +267,13 @@ export const StorageService = {
 
   saveEnquiry(enquiry: Omit<Enquiry, 'id' | 'date' | 'status'>): Enquiry {
     const enquiries = this.getEnquiries();
+    const recipients = enquiry.recipientEmails || this.getNotificationEmails();
     const newEnquiry: Enquiry = {
       ...enquiry,
       id: `ENQ-${Date.now().toString().slice(-6)}`,
       date: new Date().toISOString(),
       status: 'new',
+      recipientEmails: recipients,
     };
     const updated = [newEnquiry, ...enquiries];
     try {
@@ -219,6 +282,28 @@ export const StorageService = {
       console.error('Failed to save enquiry', e);
     }
     return newEnquiry;
+  },
+
+  updateEnquiryStatus(id: string, status: 'new' | 'replied' | 'archived'): Enquiry[] {
+    const enquiries = this.getEnquiries().map((enq) =>
+      enq.id === id ? { ...enq, status } : enq
+    );
+    try {
+      localStorage.setItem(STORAGE_KEY_ENQUIRIES, JSON.stringify(enquiries));
+    } catch (e) {
+      console.error('Failed to update enquiry status', e);
+    }
+    return enquiries;
+  },
+
+  deleteEnquiry(id: string): Enquiry[] {
+    const enquiries = this.getEnquiries().filter((enq) => enq.id !== id);
+    try {
+      localStorage.setItem(STORAGE_KEY_ENQUIRIES, JSON.stringify(enquiries));
+    } catch (e) {
+      console.error('Failed to delete enquiry', e);
+    }
+    return enquiries;
   },
 
   // Password Verification
@@ -236,64 +321,60 @@ export const StorageService = {
   },
 
   // Bulk Catalog JSON and CSV Import / Export
-  importFromJSON(jsonString: string): { success: boolean; count: number; message: string } {
-    try {
-      const data = JSON.parse(jsonString);
-      const items = Array.isArray(data) ? data : data.records || data.artworks || [data];
-      if (!Array.isArray(items) || items.length === 0) {
-        return { success: false, count: 0, message: 'No valid artworks array found in JSON.' };
-      }
-
-      const currentArtworks = this.getArtworks();
-      let importedCount = 0;
-
-      const newItems: Artwork[] = items.map((raw: Record<string, unknown>, idx: number) => {
-        importedCount++;
-        const title = (raw.title || raw.Title || raw.name || raw['Painting Title'] || `Untitled Piece ${idx + 1}`) as string;
-        const medium = (raw.medium || raw.Medium || raw.format || raw.Format || 'Acrylic on canvas') as string;
-        const dimensions = (raw.dimensions || raw.Dimensions || raw.size || '50 x 40 cm') as string;
-        const price = Number(raw.price || raw.Price || raw.cost || 300);
-        const tags = Array.isArray(raw.tags)
-          ? raw.tags
-          : typeof raw.tags === 'string'
-          ? (raw.tags as string).split(',').map((t) => t.trim()).filter(Boolean)
-          : ['Landscapes'];
-        
-        let status: ArtworkStatus = 'Available';
-        const rawStatus = String(raw.status || raw.Status || '').toLowerCase();
-        if (rawStatus.includes('sold')) status = 'Sold';
-        else if (rawStatus.includes('order')) status = 'On Order';
-        else if (rawStatus.includes('two')) status = 'Two Sizes';
-        else if (rawStatus.includes('discount')) status = 'Discounted';
-
-        const sku = (raw.sku || raw.SKU || `FAF-IMP-${Date.now().toString(36).slice(-3)}-${idx + 1}`) as string;
-        const imageUrl = (raw.image_url || raw.imageUrl || raw.image || raw.Image || 'https://images.unsplash.com/photo-1544816155-12df9643f363?auto=format&fit=crop&w=1200&q=80') as string;
-        const description = (raw.description || raw.Description || `Original artwork by Fife Art.`) as string;
-
-        return {
-          id: `faf-imp-${Date.now()}-${idx}`,
-          sku,
-          title,
-          slug: title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
-          medium,
-          dimensions,
-          price: isNaN(price) ? 250 : price,
-          originalPrice: raw.originalPrice ? Number(raw.originalPrice) : undefined,
-          tags,
-          status,
-          imageUrl,
-          description,
-          year: raw.year ? Number(raw.year) : new Date().getFullYear(),
-          featured: Boolean(raw.featured),
-          createdAt: new Date().toISOString(),
-        };
-      });
-
-      this.saveArtworks([...newItems, ...currentArtworks]);
-      return { success: true, count: importedCount, message: `Successfully imported ${importedCount} artworks.` };
-    } catch (e) {
-      return { success: false, count: 0, message: (e as Error).message };
+  importParsedArtworks(
+    newArtworks: Artwork[],
+    replaceExisting = false
+  ): { success: boolean; count: number; message: string; artworks: Artwork[] } {
+    if (newArtworks.length === 0) {
+      return {
+        success: false,
+        count: 0,
+        message: 'No artworks to import.',
+        artworks: this.getArtworks(),
+      };
     }
+
+    const currentArtworks = replaceExisting ? [] : this.getArtworks();
+    const finalArtworks = replaceExisting ? newArtworks : [...newArtworks, ...currentArtworks];
+    this.saveArtworks(finalArtworks);
+
+    return {
+      success: true,
+      count: newArtworks.length,
+      message: replaceExisting
+        ? `Successfully replaced catalog with ${newArtworks.length} artworks.`
+        : `Successfully added ${newArtworks.length} artworks to catalog.`,
+      artworks: finalArtworks,
+    };
+  },
+
+  importFromData(
+    rawInput: string,
+    replaceExisting = false
+  ): { success: boolean; count: number; message: string; format?: string; artworks?: Artwork[] } {
+    const parseResult: ParseResult = parseArtworksImport(rawInput);
+    if (!parseResult.success || parseResult.artworks.length === 0) {
+      return {
+        success: false,
+        count: 0,
+        message: parseResult.errorMessage || 'Failed to parse artwork records.',
+        format: parseResult.formatDetected,
+      };
+    }
+
+    const result = this.importParsedArtworks(parseResult.artworks, replaceExisting);
+    return {
+      ...result,
+      format: parseResult.formatDetected,
+    };
+  },
+
+  // Backwards compatibility alias
+  importFromJSON(
+    dataString: string,
+    replaceExisting = false
+  ): { success: boolean; count: number; message: string } {
+    return this.importFromData(dataString, replaceExisting);
   },
 
   exportToJSON(): string {
@@ -316,5 +397,70 @@ export const StorageService = {
       `"${a.imageUrl}"`,
     ]);
     return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+  },
+
+  // About the Artist Content
+  getAboutContent(): AboutContent {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_ABOUT);
+      if (stored) {
+        return { ...DEFAULT_ABOUT_CONTENT, ...JSON.parse(stored) };
+      }
+    } catch (e) {
+      console.warn('Failed to load about content from storage', e);
+    }
+    return DEFAULT_ABOUT_CONTENT;
+  },
+
+  saveAboutContent(content: AboutContent): void {
+    try {
+      localStorage.setItem(STORAGE_KEY_ABOUT, JSON.stringify(content));
+    } catch (e) {
+      console.error('Failed to save about content', e);
+    }
+  },
+
+  resetAboutContent(): AboutContent {
+    try {
+      localStorage.removeItem(STORAGE_KEY_ABOUT);
+    } catch (e) {
+      console.error(e);
+    }
+    return DEFAULT_ABOUT_CONTENT;
+  },
+
+  // Legal, Terms & Conditions, and Disclaimer Content
+  getLegalContent(): LegalContent {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_LEGAL);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return {
+          privacyPolicy: { ...DEFAULT_LEGAL_CONTENT.privacyPolicy, ...(parsed.privacyPolicy || {}) },
+          termsConditions: { ...DEFAULT_LEGAL_CONTENT.termsConditions, ...(parsed.termsConditions || {}) },
+          disclaimer: { ...DEFAULT_LEGAL_CONTENT.disclaimer, ...(parsed.disclaimer || {}) },
+        };
+      }
+    } catch (e) {
+      console.warn('Failed to load legal content from storage', e);
+    }
+    return DEFAULT_LEGAL_CONTENT;
+  },
+
+  saveLegalContent(content: LegalContent): void {
+    try {
+      localStorage.setItem(STORAGE_KEY_LEGAL, JSON.stringify(content));
+    } catch (e) {
+      console.error('Failed to save legal content', e);
+    }
+  },
+
+  resetLegalContent(): LegalContent {
+    try {
+      localStorage.removeItem(STORAGE_KEY_LEGAL);
+    } catch (e) {
+      console.error(e);
+    }
+    return DEFAULT_LEGAL_CONTENT;
   },
 };
