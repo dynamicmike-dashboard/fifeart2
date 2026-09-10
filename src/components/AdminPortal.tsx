@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   X,
   Lock,
@@ -546,9 +546,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     );
   };
 
-  const attentionCount = useMemo(() => artworks.filter(needsAttention).length, [artworks]);
+  const attentionCount = artworks.filter(needsAttention).length;
 
-  const filteredAdminArtworks = useMemo(() => {
+  const filteredAdminArtworks = (() => {
     const list = artworks.filter((a) => {
       if (adminAttentionOnly && !needsAttention(a)) return false;
       const q = adminSearch.toLowerCase().trim();
@@ -585,7 +585,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         }
       }
     });
-  }, [artworks, adminSearch, adminStatusFilter, adminSortBy, adminAttentionOnly]);
+  })();
 
   const placeholderCount = artworks.filter((a) => StorageService.isPlaceholderArtwork(a)).length;
 
