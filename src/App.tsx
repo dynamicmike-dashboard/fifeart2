@@ -95,32 +95,45 @@ export default function App() {
   // FAQs state for homepage and AEO / Schema.org
   const [faqs, setFaqs] = useState<FaqItem[]>(() => SeoService.getFaqs());
 
+  // Catalog load state: visitors see a loading grid while the server is
+  // contacted — never the admin onboarding panel. Errors get a retry view.
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
   // Initialize artworks: Sanity (server) first, localStorage as offline fallback.
   // Placeholders are never seeded — fresh visitors with no server data see
   // the empty-catalog state instead of demo images.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      setCatalogLoading(true);
+      setCatalogError(null);
       if (isSanityConfigured()) {
         try {
           const remote = await fetchArtworksFromSanity();
           if (!cancelled) {
             setArtworks(remote);
             StorageService.saveArtworks(remote);
+            setCatalogLoading(false);
             return;
           }
         } catch (e) {
           console.warn('Sanity fetch failed, falling back to local storage', e);
+          if (!cancelled) {
+            setCatalogError(e instanceof Error ? e.message : 'Failed to load gallery');
+          }
         }
       }
       if (!cancelled) {
         setArtworks(StorageService.getArtworks());
+        setCatalogLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   // Synchronize SEO, Geo tags, OpenGraph & Schema.org JSON-LD graph to DOM
   useEffect(() => {
@@ -338,7 +351,38 @@ export default function App() {
         )}
 
         {/* Artworks Grid (4 columns on desktop, 2 on mobile) */}
-        {paginatedArtworks.length > 0 ? (
+        {catalogLoading ? (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 pt-4 pb-8" aria-label="Loading gallery">
+            {Array.from({length: 8}).map((_, i) => (
+              <div key={i} className="rounded-xl overflow-hidden border border-stone-200/60 bg-white">
+                <div className="aspect-[4/3] bg-stone-200 animate-pulse" />
+                <div className="p-3 space-y-2">
+                  <div className="h-4 bg-stone-200 rounded animate-pulse" />
+                  <div className="h-3 w-2/3 bg-stone-200 rounded animate-pulse" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : catalogError && artworks.length === 0 ? (
+          <div className="py-20 text-center space-y-4 max-w-md mx-auto">
+            <div className="w-12 h-12 rounded-full bg-stone-100 text-stone-400 flex items-center justify-center mx-auto">
+              <RefreshCw className="w-6 h-6" />
+            </div>
+            <h3 className="font-serif text-xl font-medium text-stone-900">
+              The gallery couldn&apos;t be loaded
+            </h3>
+            <p className="text-xs text-stone-500 leading-relaxed">
+              Please check your connection and try again.
+            </p>
+            <button
+              onClick={() => setReloadKey((k) => k + 1)}
+              className="inline-flex items-center space-x-1.5 px-4 py-2 bg-stone-900 text-white rounded-lg text-xs font-medium hover:bg-stone-800 transition-colors shadow-2xs cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry</span>
+            </button>
+          </div>
+        ) : paginatedArtworks.length > 0 ? (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 pt-4 pb-8">
             {paginatedArtworks.map((artwork) => (
               <ArtworkCard
@@ -363,6 +407,16 @@ export default function App() {
               <Palette className="w-6 h-6" />
             </div>
             {artworks.length === 0 ? (
+              isSanityConfigured() ? (
+              <>
+                <h3 className="font-serif text-xl font-medium text-stone-900">
+                  New artworks are on the way
+                </h3>
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  Our gallery is being updated — please check back soon.
+                </p>
+              </>
+              ) : (
               <>
                 <h3 className="font-serif text-xl font-medium text-stone-900">
                   Gallery Catalog Is Empty
@@ -387,6 +441,7 @@ export default function App() {
                   </button>
                 </div>
               </>
+              )
             ) : (
               <>
                 <h3 className="font-serif text-xl font-medium text-stone-900">
