@@ -13,7 +13,7 @@
  */
 import {readFileSync} from 'node:fs';
 import {resolve, basename} from 'node:path';
-import {parseArtworksImport} from '../src/utils/artworkParser';
+import {parseArtworksImport, parseDelimitedText} from '../src/utils/artworkParser';
 
 const PROJECT_ID = process.env.SANITY_PROJECT_ID || 's2an63e9';
 const DATASET = process.env.SANITY_DATASET || 'production';
@@ -21,6 +21,7 @@ const TOKEN = process.env.SANITY_API_TOKEN || '';
 const CSV_PATH = resolve(process.cwd(), process.env.CSV_PATH || '../teablepaintings09sep26.csv');
 const LIMIT = Number(process.env.LIMIT || '0');
 const OFFSET = Number(process.env.OFFSET || '0');
+const WIPE_EXISTING = process.env.WIPE_EXISTING === 'true';
 const API_VERSION = 'v2024-01-01';
 
 if (!TOKEN) {
@@ -89,26 +90,48 @@ async function createDoc(doc: Record<string, unknown>): Promise<string> {
   return data.results?.[0]?.id as string;
 }
 
+async function wipeAllArtworks(): Promise<void> {
+  const url = `https://${PROJECT_ID}.api.sanity.io/${API_VERSION}/data/mutate/${DATASET}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json'},
+    body: JSON.stringify({mutations: [{delete: {query: '*[_type == "artwork"]'}}]}),
+  });
+  if (!res.ok) throw new Error(`Wipe failed ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  console.log('Wiped all existing artwork docs');
+}
+
 async function main() {
   const csv = readFileSync(CSV_PATH, 'utf8');
   const parsed = parseArtworksImport(csv);
   if (!parsed.success || parsed.artworks.length === 0) {
     throw new Error(parsed.errorMessage || 'No artworks parsed from CSV');
   }
-  let list = parsed.artworks;
+  // The CSV `order` column repeats (mostly "1") — the unique key is the
+  // numeric `id` column. Pair rows with parsed artworks by index.
+  const {headers, rows} = parseDelimitedText(csv);
+  const idIdx = headers.findIndex((h) => h.toLowerCase() === 'id');
+  let list = parsed.artworks.map((art, idx) => {
+    const rawId = idIdx >= 0 ? (rows[idx]?.[idIdx] || '').trim() : '';
+    return {art, teableId: rawId ? `teable-${rawId}` : art.orderNumber || art.sku};
+  });
   console.log(`Parsed ${list.length} artworks from ${basename(CSV_PATH)}`);
+  const uniqueKeys = new Set(list.map((r) => r.teableId));
+  console.log(`Unique teableIds: ${uniqueKeys.size}`);
   if (OFFSET) list = list.slice(OFFSET);
   if (LIMIT) list = list.slice(0, LIMIT);
   console.log(`Migrating ${list.length} rows (offset ${OFFSET})...`);
 
-  const existing = await getExistingTeableIds();
+  if (WIPE_EXISTING) {
+    await wipeAllArtworks();
+  }
+  const existing = WIPE_EXISTING ? new Set<string>() : await getExistingTeableIds();
   console.log(`Skipping ${existing.size} teableIds already in Sanity`);
 
   let created = 0;
   let skipped = 0;
   let failed = 0;
-  for (const [i, art] of list.entries()) {
-    const teableId = art.orderNumber || art.sku;
+  for (const [i, {art, teableId}] of list.entries()) {
     try {
       if (existing.has(teableId)) {
         skipped++;
