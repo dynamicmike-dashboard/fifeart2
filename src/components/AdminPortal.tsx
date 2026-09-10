@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   X,
   Lock,
@@ -93,6 +93,8 @@ interface AdminPortalProps {
   onFaqsUpdated?: (faqs: FaqItem[]) => void;
   onAboutContentUpdated?: (about: AboutContent) => void;
   onLegalContentUpdated?: (legal: LegalContent) => void;
+  catalogSource?: 'sanity' | 'local' | null;
+  onReloadCatalog?: () => void;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -104,6 +106,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onFaqsUpdated,
   onAboutContentUpdated,
   onLegalContentUpdated,
+  catalogSource,
+  onReloadCatalog,
 }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
@@ -142,6 +146,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // Search & Filter within Admin
   const [adminSearch, setAdminSearch] = useState('');
   const [adminStatusFilter, setAdminStatusFilter] = useState('All');
+  const [adminSortBy, setAdminSortBy] = useState<'latest' | 'alpha-asc' | 'alpha-desc' | 'price-asc' | 'price-desc'>('latest');
+  const [adminAttentionOnly, setAdminAttentionOnly] = useState(false);
 
   // Bulk selection and clear state
   const [selectedArtworkIds, setSelectedArtworkIds] = useState<Set<string>>(new Set());
@@ -530,23 +536,56 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setToastMessage('Reset SEO & Schema settings to default Scottish Art settings');
   };
 
-  const filteredAdminArtworks = artworks.filter((a) => {
-    const q = adminSearch.toLowerCase().trim();
-    if (!q) {
-      return adminStatusFilter === 'All' || a.status === adminStatusFilter;
-    }
-    const matchesSearch =
-      a.title.toLowerCase().includes(q) ||
-      a.sku.toLowerCase().includes(q) ||
-      (a.orderNumber && a.orderNumber.toLowerCase().includes(q)) ||
-      a.medium.toLowerCase().includes(q) ||
-      (a.orientation && a.orientation.toLowerCase().includes(q)) ||
-      (a.date && a.date.toLowerCase().includes(q)) ||
-      (a.subjects && a.subjects.some((s) => s.toLowerCase().includes(q))) ||
-      (a.tags && a.tags.some((t) => t.toLowerCase().includes(q)));
-    const matchesStatus = adminStatusFilter === 'All' || a.status === adminStatusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const needsAttention = (a: Artwork): boolean => {
+    return (
+      !a.title?.trim() ||
+      !a.price ||
+      a.price <= 0 ||
+      !a.medium?.trim() ||
+      !a.imageUrl?.trim()
+    );
+  };
+
+  const attentionCount = useMemo(() => artworks.filter(needsAttention).length, [artworks]);
+
+  const filteredAdminArtworks = useMemo(() => {
+    const list = artworks.filter((a) => {
+      if (adminAttentionOnly && !needsAttention(a)) return false;
+      const q = adminSearch.toLowerCase().trim();
+      if (!q) {
+        return adminStatusFilter === 'All' || a.status === adminStatusFilter;
+      }
+      const matchesSearch =
+        a.title.toLowerCase().includes(q) ||
+        a.sku.toLowerCase().includes(q) ||
+        (a.orderNumber && a.orderNumber.toLowerCase().includes(q)) ||
+        a.medium.toLowerCase().includes(q) ||
+        (a.orientation && a.orientation.toLowerCase().includes(q)) ||
+        (a.date && a.date.toLowerCase().includes(q)) ||
+        (a.subjects && a.subjects.some((s) => s.toLowerCase().includes(q))) ||
+        (a.tags && a.tags.some((t) => t.toLowerCase().includes(q)));
+      const matchesStatus = adminStatusFilter === 'All' || a.status === adminStatusFilter;
+      return matchesSearch && matchesStatus;
+    });
+    return [...list].sort((a, b) => {
+      switch (adminSortBy) {
+        case 'alpha-asc':
+          return (a.title || '').localeCompare(b.title || '');
+        case 'alpha-desc':
+          return (b.title || '').localeCompare(a.title || '');
+        case 'price-asc':
+          return (a.price || 0) - (b.price || 0);
+        case 'price-desc':
+          return (b.price || 0) - (a.price || 0);
+        case 'latest':
+        default: {
+          const timeA = new Date(a.createdAt || 0).getTime();
+          const timeB = new Date(b.createdAt || 0).getTime();
+          return timeB - timeA;
+        }
+      }
+    });
+  }, [artworks, adminSearch, adminStatusFilter, adminSortBy, adminAttentionOnly]);
 
   const placeholderCount = artworks.filter((a) => StorageService.isPlaceholderArtwork(a)).length;
 
@@ -752,6 +791,58 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </option>
                         ))}
                       </select>
+                      <select
+                        value={adminSortBy}
+                        onChange={(e) => setAdminSortBy(e.target.value as typeof adminSortBy)}
+                        aria-label="Sort artworks"
+                        className="px-2.5 py-1.5 bg-stone-50 border border-stone-200 rounded-lg text-xs text-stone-900 focus:outline-hidden"
+                      >
+                        <option value="latest">Latest First</option>
+                        <option value="alpha-asc">Title A–Z</option>
+                        <option value="alpha-desc">Title Z–A</option>
+                        <option value="price-asc">Price Low → High</option>
+                        <option value="price-desc">Price High → Low</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setAdminAttentionOnly((v) => !v)}
+                        title="Show only items missing title, price, medium or image"
+                        className={`px-2.5 py-1.5 border rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                          adminAttentionOnly
+                            ? 'bg-amber-900 text-white border-amber-900'
+                            : 'bg-stone-50 border-stone-200 text-stone-700 hover:text-stone-900'
+                        }`}
+                      >
+                        Needs attention ({attentionCount})
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-stone-500">
+                      <span>
+                        Showing {filteredAdminArtworks.length} of {artworks.length}
+                      </span>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full font-medium ${
+                          catalogSource === 'sanity'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-800 border border-amber-200'
+                        }`}
+                        title={
+                          catalogSource === 'sanity'
+                            ? 'Catalog loaded live from Sanity'
+                            : 'Showing browser-local copy — Sanity unreachable. Check CORS/env, then reload.'
+                        }
+                      >
+                        {catalogSource === 'sanity' ? '● Live: Sanity' : '● Local only'}
+                      </span>
+                      {onReloadCatalog && (
+                        <button
+                          type="button"
+                          onClick={onReloadCatalog}
+                          className="underline hover:text-stone-800 cursor-pointer"
+                        >
+                          Reload from Sanity
+                        </button>
+                      )}
                     </div>
 
                     <div className="flex items-center space-x-2">

@@ -20,7 +20,7 @@ import { LegalModal, LegalTab } from './components/LegalModal';
 import { TeableSyncModal } from './components/TeableSyncModal';
 import { Artwork, SortOption, CurrencyCode, FaqItem, AboutContent, LegalContent } from './types';
 import { StorageService } from './services/storage';
-import { fetchArtworksFromSanity, isSanityConfigured } from './services/sanity';
+import { fetchArtworksFromSanity, fetchAboutFromSanity, isSanityConfigured } from './services/sanity';
 import { SeoService } from './services/seoService';
 import { Sparkles, RefreshCw, Palette, Heart, Table, Lock } from 'lucide-react';
 
@@ -64,8 +64,28 @@ export default function App() {
   const [isLegalOpen, setIsLegalOpen] = useState(false);
   const [legalTab, setLegalTab] = useState<LegalTab>('disclaimer');
 
-  // Dynamic Content (About Me & Legal Policies)
+  // Dynamic Content (About Me & Legal Policies) — Sanity first, local fallback
   const [aboutContent, setAboutContent] = useState<AboutContent>(() => StorageService.getAboutContent());
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!isSanityConfigured()) return;
+      try {
+        const remote = await fetchAboutFromSanity();
+        if (!cancelled && remote) {
+          const merged = {...StorageService.getAboutContent(), ...remote};
+          setAboutContent(merged);
+          StorageService.saveAboutContent(merged);
+        }
+      } catch (e) {
+        console.warn('Sanity about fetch failed, using local content', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [legalContent, setLegalContent] = useState<LegalContent>(() => StorageService.getLegalContent());
 
   // Check if the catalog contains demo/placeholder artworks
@@ -99,6 +119,7 @@ export default function App() {
   // contacted — never the admin onboarding panel. Errors get a retry view.
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogSource, setCatalogSource] = useState<'sanity' | 'local' | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   // Initialize artworks: Sanity (server) first, localStorage as offline fallback.
@@ -115,6 +136,7 @@ export default function App() {
           if (!cancelled) {
             setArtworks(remote);
             StorageService.saveArtworks(remote);
+            setCatalogSource('sanity');
             setCatalogLoading(false);
             return;
           }
@@ -127,6 +149,7 @@ export default function App() {
       }
       if (!cancelled) {
         setArtworks(StorageService.getArtworks());
+        setCatalogSource('local');
         setCatalogLoading(false);
       }
     })();
@@ -554,6 +577,8 @@ export default function App() {
         onFaqsUpdated={(updated) => setFaqs(updated)}
         onAboutContentUpdated={(updated) => setAboutContent(updated)}
         onLegalContentUpdated={(updated) => setLegalContent(updated)}
+        catalogSource={catalogSource}
+        onReloadCatalog={() => setReloadKey((k) => k + 1)}
       />
 
       {/* MODAL 7: Legal Policies & Art Representation Disclaimer */}

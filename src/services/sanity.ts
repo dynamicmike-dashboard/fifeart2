@@ -1,4 +1,4 @@
-import { Artwork } from '../types';
+import { Artwork, AboutContent } from '../types';
 
 // Server-backed catalog via Sanity (permanent memory).
 // Uses the plain HTTP Data API so no extra npm dependencies are needed.
@@ -9,7 +9,72 @@ import { Artwork } from '../types';
 const PROJECT_ID = (import.meta.env.VITE_SANITY_PROJECT_ID as string | undefined)?.trim() || 's2an63e9';
 const DATASET = (import.meta.env.VITE_SANITY_DATASET as string | undefined)?.trim() || 'production';
 const API_TOKEN = (import.meta.env.VITE_SANITY_API_TOKEN as string | undefined)?.trim() || '';
+// Optional write token for admin saves from the browser (About page, etc.).
+// NOTE: anything in a VITE_ variable ships in public JS — treat this token
+// as semi-public and rotate it if it is ever abused.
+const WRITE_TOKEN =
+  (import.meta.env.VITE_SANITY_WRITE_TOKEN as string | undefined)?.trim() || '';
 const API_VERSION = 'v2024-01-01';
+
+export function isSanityWriteConfigured(): boolean {
+  return isSanityConfigured() && WRITE_TOKEN.length > 0;
+}
+
+const ABOUT_DOC_ID = 'site-about';
+
+export async function fetchAboutFromSanity(): Promise<Partial<AboutContent> | null> {
+  if (!isSanityConfigured()) return null;
+  const q = encodeURIComponent(
+    `*[_type == "about"][0]{artistName, headline, location, photoUrl, bioParagraph1, bioParagraph2, mediumsApproach, protectionNote, commissionPromptTitle, commissionPromptSubtitle}`,
+  );
+  const headers: Record<string, string> = {};
+  if (API_TOKEN) headers.Authorization = `Bearer ${API_TOKEN}`;
+  const res = await fetch(
+    `https://${PROJECT_ID}.api.sanity.io/${API_VERSION}/data/query/${DATASET}?query=${q}`,
+  );
+  if (!res.ok) throw new Error(`Sanity about query failed ${res.status}`);
+  const data = await res.json();
+  return (data.result as Partial<AboutContent> | null) || null;
+}
+
+export async function saveAboutToSanity(content: AboutContent): Promise<void> {
+  if (!isSanityWriteConfigured()) {
+    throw new Error('Sanity write token is not configured');
+  }
+  const res = await fetch(
+    `https://${PROJECT_ID}.api.sanity.io/${API_VERSION}/data/mutate/${DATASET}`,
+    {
+      method: 'POST',
+      headers: {Authorization: `Bearer ${WRITE_TOKEN}`, 'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        mutations: [{createOrReplace: {_id: ABOUT_DOC_ID, _type: 'about', ...content}}],
+      }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Sanity about save failed ${res.status}: ${text.slice(0, 200)}`);
+  }
+}
+
+// Upload a portrait file to Sanity assets and return its permanent CDN URL.
+export async function uploadAboutPhoto(file: File): Promise<string> {
+  if (!isSanityWriteConfigured()) {
+    throw new Error('Sanity write token is not configured');
+  }
+  const res = await fetch(
+    `https://${PROJECT_ID}.api.sanity.io/${API_VERSION}/assets/images/${DATASET}?filename=${encodeURIComponent(file.name)}`,
+    {method: 'POST', headers: {Authorization: `Bearer ${WRITE_TOKEN}`, 'Content-Type': file.type || 'image/jpeg'}, body: file},
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Photo upload failed ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const url: string | undefined = data.document?.url;
+  if (!url) throw new Error('Photo upload returned no URL');
+  return url;
+}
 
 export function isSanityConfigured(): boolean {
   return PROJECT_ID.length > 0;

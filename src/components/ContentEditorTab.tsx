@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   HelpCircle,
   Sparkles,
@@ -14,12 +14,14 @@ import {
   Eye,
   Info,
   Layers,
+  Upload,
 } from 'lucide-react';
 import { FaqItem, FaqCategory, AboutContent, LegalContent } from '../types';
 import { DEFAULT_FAQS } from '../data/faqData';
 import { DEFAULT_ABOUT_CONTENT, DEFAULT_LEGAL_CONTENT } from '../data/contentDefaults';
 import { StorageService } from '../services/storage';
 import { SeoService } from '../services/seoService';
+import { saveAboutToSanity, uploadAboutPhoto, isSanityWriteConfigured } from '../services/sanity';
 
 interface ContentEditorTabProps {
   faqs: FaqItem[];
@@ -59,6 +61,9 @@ export const ContentEditorTab: React.FC<ContentEditorTabProps> = ({
 
   // About Content local state
   const [aboutForm, setAboutForm] = useState<AboutContent>(() => StorageService.getAboutContent());
+  const [aboutPhotoFile, setAboutPhotoFile] = useState<File | null>(null);
+  const [aboutSaving, setAboutSaving] = useState(false);
+  const aboutPhotoInputRef = useRef<HTMLInputElement>(null);
 
   // Legal Content local state
   const [legalForm, setLegalForm] = useState<LegalContent>(() => StorageService.getLegalContent());
@@ -131,11 +136,45 @@ export const ContentEditorTab: React.FC<ContentEditorTabProps> = ({
   // -------------------------------------------------------------
   // About Content Handlers
   // -------------------------------------------------------------
-  const handleSaveAbout = (e: React.FormEvent) => {
+  const handleSaveAbout = async (e: React.FormEvent) => {
     e.preventDefault();
-    StorageService.saveAboutContent(aboutForm);
-    onSaveAbout(aboutForm);
-    onShowToast('About Me content updated successfully.');
+    setAboutSaving(true);
+    try {
+      let form = {...aboutForm};
+      // Upload a newly chosen portrait to Sanity so its URL is permanent
+      if (aboutPhotoFile) {
+        try {
+          const cdnUrl = await uploadAboutPhoto(aboutPhotoFile);
+          form = {...form, photoUrl: cdnUrl};
+          setAboutForm(form);
+          setAboutPhotoFile(null);
+        } catch (err) {
+          onShowToast(
+            `Portrait upload failed (${err instanceof Error ? err.message : 'unknown error'}) — text saved without the new photo.`,
+          );
+        }
+      }
+      // Persist to Sanity (visible to every visitor) when a write token exists
+      if (isSanityWriteConfigured()) {
+        try {
+          await saveAboutToSanity(form);
+          StorageService.saveAboutContent(form);
+          onSaveAbout(form);
+          onShowToast('About Me published to the website for all visitors.');
+          return;
+        } catch (err) {
+          onShowToast(
+            `Website save failed (${err instanceof Error ? err.message : 'unknown error'}) — kept a copy in this browser only.`,
+          );
+        }
+      } else {
+        onShowToast('Saved in this browser only — add VITE_SANITY_WRITE_TOKEN to publish to the website.');
+      }
+      StorageService.saveAboutContent(form);
+      onSaveAbout(form);
+    } finally {
+      setAboutSaving(false);
+    }
   };
 
   const handleResetAbout = () => {
@@ -500,13 +539,14 @@ export const ContentEditorTab: React.FC<ContentEditorTabProps> = ({
 
             <div className="sm:col-span-2 space-y-1">
               <label className="text-xs font-semibold text-stone-800">
-                Portrait / Studio Image URL
+                Portrait / Studio Image
               </label>
               <div className="flex gap-3 items-center">
                 <input
                   type="url"
                   value={aboutForm.photoUrl}
                   onChange={(e) => setAboutForm({ ...aboutForm, photoUrl: e.target.value })}
+                  placeholder="Paste image URL or upload a file below"
                   className="w-full px-3 py-2 text-xs border border-stone-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-stone-900"
                 />
                 {aboutForm.photoUrl && (
@@ -516,6 +556,28 @@ export const ContentEditorTab: React.FC<ContentEditorTabProps> = ({
                     className="w-10 h-10 rounded-lg object-cover border border-stone-300 shrink-0"
                   />
                 )}
+              </div>
+              <div className="flex gap-2 items-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => aboutPhotoInputRef.current?.click()}
+                  className="px-3 py-1.5 bg-white border border-stone-300 hover:bg-stone-100 text-stone-700 rounded-lg text-xs font-medium transition-colors flex items-center space-x-1 cursor-pointer"
+                >
+                  <Upload className="w-3 h-3" />
+                  <span>{aboutPhotoFile ? 'Change portrait file' : 'Upload portrait file'}</span>
+                </button>
+                {aboutPhotoFile && (
+                  <span className="text-xs text-stone-600 truncate">
+                    {aboutPhotoFile.name} — uploads to permanent storage on Save
+                  </span>
+                )}
+                <input
+                  ref={aboutPhotoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => setAboutPhotoFile(e.target.files?.[0] || null)}
+                />
               </div>
             </div>
           </div>
@@ -606,10 +668,11 @@ export const ContentEditorTab: React.FC<ContentEditorTabProps> = ({
           <div className="pt-3 border-t border-stone-200 flex justify-end">
             <button
               type="submit"
-              className="px-6 py-2.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-semibold transition-colors flex items-center space-x-2 cursor-pointer shadow-sm"
+              disabled={aboutSaving}
+              className="px-6 py-2.5 bg-stone-900 hover:bg-stone-800 disabled:opacity-60 text-white rounded-xl text-xs font-semibold transition-colors flex items-center space-x-2 cursor-pointer shadow-sm"
             >
               <Check className="w-4 h-4 text-amber-300" />
-              <span>Save About Me Changes</span>
+              <span>{aboutSaving ? 'Publishing…' : 'Save About Me Changes'}</span>
             </button>
           </div>
         </form>
