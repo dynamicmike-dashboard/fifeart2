@@ -3,7 +3,10 @@ import { Artwork } from '../types';
 // Server-backed catalog via Sanity (permanent memory).
 // Uses the plain HTTP Data API so no extra npm dependencies are needed.
 
-const PROJECT_ID = (import.meta.env.VITE_SANITY_PROJECT_ID as string | undefined)?.trim() || '';
+// Project ID / dataset are public, client-safe values: hardcode them as
+// defaults so the gallery works even if Vercel env vars were added after
+// the build or only to the wrong environment. Env vars still override.
+const PROJECT_ID = (import.meta.env.VITE_SANITY_PROJECT_ID as string | undefined)?.trim() || 's2an63e9';
 const DATASET = (import.meta.env.VITE_SANITY_DATASET as string | undefined)?.trim() || 'production';
 const API_TOKEN = (import.meta.env.VITE_SANITY_API_TOKEN as string | undefined)?.trim() || '';
 const API_VERSION = 'v2024-01-01';
