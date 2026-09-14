@@ -45,6 +45,13 @@ import { AVAILABLE_TAGS, STATUS_OPTIONS } from '../data/sampleArtworks';
 import { AdminBulkImport } from './AdminBulkImport';
 import { ContentEditorTab } from './ContentEditorTab';
 import { generateCanvasPlaceholder } from '../utils/artworkParser';
+import {
+  createArtworkInSanity,
+  updateArtworkInSanity,
+  deleteArtworksInSanity,
+  isSanityDocId,
+  isSanityWriteConfigured,
+} from '../services/sanity';
 
 const MEDIUM_PRESETS = [
   'Oil on canvas',
@@ -333,7 +340,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }));
   };
 
-  const handleSaveArtworkForm = (e: React.FormEvent) => {
+  const handleSaveArtworkForm = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim() || formPrice === '') return;
 
@@ -376,17 +383,55 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       extraFields: Object.keys(cleanExtraFields).length > 0 ? cleanExtraFields : undefined,
     };
 
-    if (editingArtworkId) {
-      StorageService.updateArtwork(editingArtworkId, artworkPayload);
-    } else {
-      StorageService.addArtwork(artworkPayload);
+    try {
+      setToastMessage('Saving…');
+      if (editingArtworkId) {
+        if (isSanityDocId(editingArtworkId) && isSanityWriteConfigured()) {
+          const existing = StorageService.getArtworks().find((a) => a.id === editingArtworkId);
+          const saved = await updateArtworkInSanity(
+            editingArtworkId,
+            artworkPayload,
+            null,
+            existing ? existing.imageUrl !== finalImageUrl : true,
+          );
+          StorageService.updateArtwork(editingArtworkId, {
+            ...artworkPayload,
+            imageUrl: saved.imageUrl,
+          });
+          setToastMessage(`Saved changes to "${formTitle}" — live on the website.`);
+        } else {
+          StorageService.updateArtwork(editingArtworkId, artworkPayload);
+          setToastMessage(
+            isSanityWriteConfigured()
+              ? `Saved changes to "${formTitle}"`
+              : `Saved changes to "${formTitle}" (this browser only — add VITE_SANITY_WRITE_TOKEN to publish).`,
+          );
+        }
+      } else {
+        if (isSanityWriteConfigured()) {
+          const created = await createArtworkInSanity(artworkPayload);
+          StorageService.saveArtworks([created, ...StorageService.getArtworks()]);
+          setToastMessage(`Added "${formTitle}" to catalog — live on the website.`);
+        } else {
+          StorageService.addArtwork(artworkPayload);
+          setToastMessage(
+            `Added "${formTitle}" to catalog (this browser only — add VITE_SANITY_WRITE_TOKEN to publish).`,
+          );
+        }
+      }
+    } catch (err) {
+      setToastMessage(
+        `Website save failed (${err instanceof Error ? err.message : 'unknown error'}) — kept a copy in this browser only.`,
+      );
+      if (editingArtworkId) {
+        StorageService.updateArtwork(editingArtworkId, artworkPayload);
+      } else {
+        StorageService.addArtwork(artworkPayload);
+      }
     }
 
     const updated = StorageService.getArtworks();
     onArtworksUpdated(updated);
-    setToastMessage(
-      editingArtworkId ? `Saved changes to "${formTitle}"` : `Added "${formTitle}" to catalog`
-    );
     setActiveTab('inventory');
   };
 
@@ -394,21 +439,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setArtworkToDelete(art);
   };
 
-  const handleConfirmDeleteSingle = () => {
+  const handleConfirmDeleteSingle = async () => {
     if (!artworkToDelete) return;
-    StorageService.deleteArtwork(artworkToDelete.id);
+    const target = artworkToDelete;
+    try {
+      if (isSanityDocId(target.id) && isSanityWriteConfigured()) {
+        await deleteArtworksInSanity([target.id]);
+      }
+      StorageService.deleteArtwork(target.id);
+      setToastMessage(
+        isSanityDocId(target.id) && isSanityWriteConfigured()
+          ? `Deleted "${target.title}" — removed from the website.`
+          : `Deleted "${target.title}"`,
+      );
+    } catch (err) {
+      setToastMessage(
+        `Website delete failed (${err instanceof Error ? err.message : 'unknown error'}) — removed from this browser only.`,
+      );
+      StorageService.deleteArtwork(target.id);
+    }
     setSelectedArtworkIds((prev) => {
       const next = new Set(prev);
-      next.delete(artworkToDelete.id);
+      next.delete(target.id);
       return next;
     });
-    if (editingArtworkId === artworkToDelete.id) {
+    if (editingArtworkId === target.id) {
       setEditingArtworkId(null);
       setActiveTab('inventory');
     }
     const updated = StorageService.getArtworks();
     onArtworksUpdated(updated);
-    setToastMessage(`Deleted "${artworkToDelete.title}"`);
     setArtworkToDelete(null);
   };
 
@@ -437,13 +497,32 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setIsDeleteSelectedModalOpen(true);
   };
 
-  const handleConfirmDeleteSelected = () => {
+  const handleConfirmDeleteSelected = async () => {
     if (selectedArtworkIds.size === 0) return;
-    const count = selectedArtworkIds.size;
-    const updated = StorageService.deleteMultipleArtworks(Array.from(selectedArtworkIds));
+    const ids: string[] = [];
+    selectedArtworkIds.forEach((id) => ids.push(id));
+    const count = ids.length;
+    try {
+      const serverIds = ids.filter((id) => isSanityDocId(id));
+      if (serverIds.length > 0 && isSanityWriteConfigured()) {
+        await deleteArtworksInSanity(serverIds);
+      }
+      const updated = StorageService.deleteMultipleArtworks(ids);
+      setToastMessage(
+        serverIds.length > 0 && isSanityWriteConfigured()
+          ? `Deleted ${count} selected painting(s) — removed from the website.`
+          : `Deleted ${count} selected painting(s)`,
+      );
+      void updated;
+    } catch (err) {
+      const updated = StorageService.deleteMultipleArtworks(ids);
+      setToastMessage(
+        `Website delete failed (${err instanceof Error ? err.message : 'unknown error'}) — removed from this browser only.`,
+      );
+      void updated;
+    }
     setSelectedArtworkIds(new Set());
-    onArtworksUpdated(updated);
-    setToastMessage(`Deleted ${count} selected painting(s)`);
+    onArtworksUpdated(StorageService.getArtworks());
     setIsDeleteSelectedModalOpen(false);
   };
 

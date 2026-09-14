@@ -57,6 +57,141 @@ export async function saveAboutToSanity(content: AboutContent): Promise<void> {
   }
 }
 
+export function isSanityDocId(id: string): boolean {
+  // Docs created in Sanity have random ids; browser-only docs use faf- prefix
+  return !id.startsWith('faf-');
+}
+
+async function uploadImageBytes(
+  bytes: ArrayBuffer,
+  filename: string,
+  contentType: string,
+): Promise<string> {
+  const res = await fetch(
+    `https://${PROJECT_ID}.api.sanity.io/${API_VERSION}/assets/images/${DATASET}?filename=${encodeURIComponent(filename)}`,
+    {
+      method: 'POST',
+      headers: {Authorization: `Bearer ${WRITE_TOKEN}`, 'Content-Type': contentType},
+      body: bytes,
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Image upload failed ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  const assetId: string | undefined = data.document?._id;
+  if (!assetId) throw new Error('Image upload returned no asset id');
+  return assetId;
+}
+
+// Resolve any image source (File, data: URL, remote URL) to a Sanity asset id.
+async function resolveImageAsset(imageUrl: string, imageFile?: File | null): Promise<string> {
+  if (imageFile) {
+    const buf = await imageFile.arrayBuffer();
+    return uploadImageBytes(buf, imageFile.name, imageFile.type || 'image/jpeg');
+  }
+  if (imageUrl.startsWith('data:')) {
+    const mimetype = imageUrl.slice(5, imageUrl.indexOf(';')) || 'image/jpeg';
+    const buf = await (await fetch(imageUrl)).arrayBuffer();
+    return uploadImageBytes(buf, `upload.${mimetype.includes('png') ? 'png' : 'jpg'}`, mimetype);
+  }
+  // Remote URL: download and re-host so the URL is permanent
+  const res = await fetch(imageUrl);
+  if (!res.ok) throw new Error(`Could not download image (${res.status}) — upload the file directly instead.`);
+  const ct = res.headers.get('content-type') || 'image/jpeg';
+  return uploadImageBytes(await res.arrayBuffer(), `upload.${ct.includes('png') ? 'png' : 'jpg'}`, ct);
+}
+
+type ArtworkInput = Omit<Artwork, 'id' | 'createdAt'>;
+
+function docFields(input: ArtworkInput, teableId: string): Record<string, unknown> {
+  return {
+    _type: 'artwork',
+    title: input.title,
+    slug: {_type: 'slug', current: input.slug},
+    sku: input.sku,
+    teableId,
+    medium: input.medium,
+    dimensions: input.dimensions,
+    orientation: input.orientation,
+    price: input.price,
+    originalPrice: input.originalPrice,
+    tags: input.tags,
+    subjects: input.subjects,
+    status: input.status,
+    description: input.description,
+    year: input.year !== undefined ? String(input.year) : undefined,
+    featured: input.featured,
+    orderNumber: input.orderNumber,
+  };
+}
+
+async function mutate(mutations: unknown[]): Promise<any> {
+  const res = await fetch(`https://${PROJECT_ID}.api.sanity.io/${API_VERSION}/data/mutate/${DATASET}`, {
+    method: 'POST',
+    headers: {Authorization: `Bearer ${WRITE_TOKEN}`, 'Content-Type': 'application/json'},
+    body: JSON.stringify({mutations}),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Sanity write failed ${res.status}: ${text.slice(0, 300)}`);
+  }
+  return res.json();
+}
+
+export async function createArtworkInSanity(input: ArtworkInput, imageFile?: File | null): Promise<Artwork> {
+  if (!isSanityWriteConfigured()) throw new Error('Sanity write token is not configured');
+  const teableId = `site-${Date.now().toString(36)}`;
+  const assetId = await resolveImageAsset(input.imageUrl, imageFile);
+  const data = await mutate([
+    {create: {...docFields(input, teableId), image: {_type: 'image', asset: {_type: 'reference', _ref: assetId}}}},
+  ]);
+  const result = data.results?.[0];
+  return {
+    ...input,
+    id: result?.id as string,
+    createdAt: new Date().toISOString(),
+    imageUrl: buildImageUrl(assetId, input.imageUrl),
+  };
+}
+
+export async function updateArtworkInSanity(
+  id: string,
+  input: ArtworkInput,
+  imageFile?: File | null,
+  imageChanged?: boolean,
+): Promise<Artwork> {
+  if (!isSanityWriteConfigured()) throw new Error('Sanity write token is not configured');
+  const set: Record<string, unknown> = {...docFields(input, input.orderNumber || input.sku)};
+  delete (set as Record<string, unknown>)._type;
+  // teableId is the stable dedupe key — never rewrite it on edit
+  delete (set as Record<string, unknown>).teableId;
+  if (imageChanged) {
+    const assetId = await resolveImageAsset(input.imageUrl, imageFile);
+    (set as Record<string, unknown>).image = {_type: 'image', asset: {_type: 'reference', _ref: assetId}};
+  }
+  const data = await mutate([{patch: {id, set}}]);
+  const docId = (data.results?.[0]?.id as string) || id;
+  return {
+    ...input,
+    id: docId,
+    createdAt: new Date().toISOString(),
+    imageUrl: imageChanged
+      ? buildImageUrl(
+          ((set as Record<string, unknown>).image as {asset: {_ref: string}})?.asset?._ref,
+          input.imageUrl,
+        )
+      : input.imageUrl,
+  };
+}
+
+export async function deleteArtworksInSanity(ids: string[]): Promise<void> {
+  if (!isSanityWriteConfigured()) throw new Error('Sanity write token is not configured');
+  if (ids.length === 0) return;
+  await mutate(ids.map((id) => ({delete: {id}})));
+}
+
 // Upload a portrait file to Sanity assets and return its permanent CDN URL.
 export async function uploadAboutPhoto(file: File): Promise<string> {
   if (!isSanityWriteConfigured()) {
