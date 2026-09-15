@@ -23,5 +23,6 @@
 ## PENDING
 - User runs `npm run deploy` in studio-fifeart (CLI hangs in agent env).
 - CORS origins in sanity.io/manage: fifeart.com, www, localhost:3000 (credentials ON).
-- Vercel redeploy so live site picks up Sanity fetch + admin tools.
+- Vercel: add `VITE_SANITY_WRITE_TOKEN` (Editor) + redeploy to activate admin publish. `PUBLIC_SANITY_*` vars are unused — `PUBLIC_SANITY_DATASET=fifeart2` is wrong, safe to delete. Verified live bundle once lacked baked project ID.
 - Rotate exposed tokens (Teable PAT + Sanity write token pasted in chat).
+- Optional: delete stray untracked `fifeart2-github/fifeart/` nested studio scaffold.
