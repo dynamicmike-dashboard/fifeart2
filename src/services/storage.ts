@@ -186,50 +186,84 @@ export const StorageService = {
     return generated;
   },
 
-  // Convert uploaded image to WebP with canvas compression
+  // Convert uploaded image to WebP with canvas compression.
+  // Memory-safe: decodes via object URL (no FileReader data-URL copy kept in
+  // memory) and revokes it promptly, so large phone photos don't crash the
+  // tab with a white screen.
   async convertImageToWebP(file: File, maxWidth = 1600, quality = 0.85): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let { width, height } = img;
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      let width = 0;
+      let height = 0;
+      let source: CanvasImageSource;
 
-          if (width > maxWidth) {
-            height = Math.round((height * maxWidth) / width);
-            width = maxWidth;
-          }
+      if (typeof createImageBitmap === 'function') {
+        // Decodes off the main thread; no extra base64 copy in memory.
+        const bitmap = await createImageBitmap(file);
+        width = bitmap.width;
+        height = bitmap.height;
+        source = bitmap;
+        try {
+          return this._drawToCompressedDataUrl(source, width, height, maxWidth, quality);
+        } finally {
+          bitmap.close();
+        }
+      }
 
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            resolve(event.target?.result as string);
-            return;
-          }
+      // Fallback for older browsers: Image + object URL.
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('Failed to load image file'));
+        el.src = objectUrl;
+      });
+      width = img.naturalWidth || img.width;
+      height = img.naturalHeight || img.height;
+      source = img;
+      return this._drawToCompressedDataUrl(source, width, height, maxWidth, quality);
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  },
 
-          ctx.drawImage(img, 0, 0, width, height);
+  _drawToCompressedDataUrl(
+    source: CanvasImageSource,
+    srcWidth: number,
+    srcHeight: number,
+    maxWidth: number,
+    quality: number,
+  ): string {
+    if (!srcWidth || !srcHeight) {
+      throw new Error('Failed to load image file');
+    }
+    let width = srcWidth;
+    let height = srcHeight;
+    if (width > maxWidth) {
+      height = Math.round((height * maxWidth) / width);
+      width = maxWidth;
+    }
 
-          // Try WebP first; fallback to JPEG if browser doesn't support WebP export
-          try {
-            const webpDataUrl = canvas.toDataURL('image/webp', quality);
-            if (webpDataUrl.startsWith('data:image/webp')) {
-              resolve(webpDataUrl);
-              return;
-            }
-          } catch (e) {
-            console.warn('WebP export not supported, falling back to jpeg', e);
-          }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Canvas is not available in this browser');
+    }
 
-          resolve(canvas.toDataURL('image/jpeg', quality));
-        };
-        img.onerror = () => reject(new Error('Failed to load image file'));
-        img.src = event.target?.result as string;
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
-    });
+    ctx.drawImage(source, 0, 0, width, height);
+
+    // Try WebP first; fallback to JPEG if browser doesn't support WebP export
+    try {
+      const webpDataUrl = canvas.toDataURL('image/webp', quality);
+      if (webpDataUrl.startsWith('data:image/webp')) {
+        return webpDataUrl;
+      }
+    } catch (e) {
+      console.warn('WebP export not supported, falling back to jpeg', e);
+    }
+
+    return canvas.toDataURL('image/jpeg', quality);
   },
 
   // Inquiries & Notification Emails

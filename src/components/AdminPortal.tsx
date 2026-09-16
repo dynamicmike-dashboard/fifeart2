@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Lock,
@@ -104,6 +104,61 @@ interface AdminPortalProps {
   onReloadCatalog?: () => void;
 }
 
+// Persisted admin session so a page reload (e.g. mobile OS reclaiming the
+// page while the native photo picker is open, or an unexpected crash) does
+// not force re-login. Stored in localStorage with a 12h expiry so it
+// survives tab kills; use Sign out on shared computers.
+const ADMIN_SESSION_KEY = 'fifeart_admin_session_v1';
+const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+function readAdminSession(): number | null {
+  try {
+    const raw = localStorage.getItem(ADMIN_SESSION_KEY)
+      ?? sessionStorage.getItem(ADMIN_SESSION_KEY); // prev version compat
+    if (!raw) return null;
+    const ts = parseInt(raw, 10);
+    return Number.isNaN(ts) ? null : ts;
+  } catch {
+    return null;
+  }
+}
+
+function hasValidAdminSession(): boolean {
+  const ts = readAdminSession();
+  if (ts === null) return false;
+  if (Date.now() - ts > ADMIN_SESSION_TTL_MS) {
+    clearAdminSession();
+    return false;
+  }
+  return true;
+}
+
+function setAdminSession(): void {
+  try {
+    localStorage.setItem(ADMIN_SESSION_KEY, String(Date.now()));
+    sessionStorage.removeItem(ADMIN_SESSION_KEY);
+  } catch {
+    try {
+      sessionStorage.setItem(ADMIN_SESSION_KEY, String(Date.now()));
+    } catch {
+      // storage unavailable (private mode) — auth simply won't survive reload
+    }
+  }
+}
+
+function clearAdminSession(): void {
+  try {
+    localStorage.removeItem(ADMIN_SESSION_KEY);
+  } catch {
+    // ignore
+  }
+  try {
+    sessionStorage.removeItem(ADMIN_SESSION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export const AdminPortal: React.FC<AdminPortalProps> = ({
   isOpen,
   onClose,
@@ -116,7 +171,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   catalogSource,
   onReloadCatalog,
 }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => hasValidAdminSession());
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
   const [activeTab, setActiveTab] = useState<'inventory' | 'add' | 'inbox' | 'seo' | 'content' | 'import' | 'sanity'>('inventory');
@@ -177,12 +232,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [faqsList, setFaqsList] = useState<FaqItem[]>(() => SeoService.getFaqs());
   const [copiedLdJson, setCopiedLdJson] = useState(false);
 
+  // When a persisted session restores auth (e.g. after the OS reloaded the
+  // page while the native photo picker was open), hydrate admin data.
+  // Must run before the early return so hooks order is stable.
+  useEffect(() => {
+    if (isAuthenticated) {
+      setAdminSession();
+      setEnquiries(StorageService.getEnquiries());
+      setNotificationEmails(StorageService.getNotificationEmails());
+      setSeoSettings(SeoService.getSeoSettings());
+      setFaqsList(SeoService.getFaqs());
+    }
+  }, [isAuthenticated]);
+
   if (!isOpen) return null;
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (StorageService.verifyAdminPassword(passwordInput)) {
       setIsAuthenticated(true);
+      setAdminSession();
+      setPasswordInput('');
       setAuthError('');
       setEnquiries(StorageService.getEnquiries());
       setNotificationEmails(StorageService.getNotificationEmails());
@@ -191,6 +261,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     } else {
       setAuthError(`Incorrect password. (Default is "${DEFAULT_ADMIN_PASSWORD}")`);
     }
+  };
+
+  const handleLogout = () => {
+    clearAdminSession();
+    setIsAuthenticated(false);
+    setPasswordInput('');
+    setActiveTab('inventory');
   };
 
   const processImageFile = async (file: File) => {
@@ -217,6 +294,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset the input value immediately so picking the same file again
+    // still fires onChange, and no stale file reference lingers.
+    e.target.value = '';
     if (!file) return;
     await processImageFile(file);
   };
@@ -694,13 +774,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            id="admin-modal-close"
-            className="p-1.5 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-200 transition-colors cursor-pointer shrink-0"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {isAuthenticated && (
+              <button
+                onClick={handleLogout}
+                title="Sign out of the Studio Portal (clears this tab's login)"
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-stone-500 hover:text-stone-800 hover:bg-stone-200 transition-colors cursor-pointer"
+              >
+                Sign out
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              id="admin-modal-close"
+              className="p-1.5 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-200 transition-colors cursor-pointer shrink-0"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Auth Barrier if not logged in */}
