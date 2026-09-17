@@ -21,6 +21,9 @@
 - Sanity image URLs are permanent CDN links. Teable presigned URLs expire in ~6 days.
 
 ## PENDING
+- Session 17sep26: fixed admin logout-on-upload (localStorage 12h session + Sign out btn), white-screen crash (malformed-entry guards in storage/App/AdminPortal; guaranteed Sanity create id), memory-safe WebP conversion. Commits `6bb30e7`, `e4c828a` pushed to origin/main, live on Vercel. Price display verified faithful (31/3196 were typed values, confirmed via Sanity query).
+- Catalog has duplicates from import tests (7x "Magnum P.I.", 2x "Koi") — user may request cleanup/dupe-finder.
+- Offered: price-field confirm safeguard in admin form (not yet requested).
 - User runs `npm run deploy` in studio-fifeart (CLI hangs in agent env).
 - CORS origins in sanity.io/manage: fifeart.com, www, localhost:3000 (credentials ON).
 - Vercel: add `VITE_SANITY_WRITE_TOKEN` (Editor) + redeploy to activate admin publish. `PUBLIC_SANITY_*` vars are unused — `PUBLIC_SANITY_DATASET=fifeart2` is wrong, safe to delete. Verified live bundle once lacked baked project ID.
