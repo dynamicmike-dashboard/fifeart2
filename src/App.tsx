@@ -92,7 +92,7 @@ export default function App() {
   const hasPlaceholderData = useMemo(() => {
     return (
       artworks.length > 0 &&
-      artworks.some((a) => a.imageUrl.includes('unsplash.com') || a.id.startsWith('faf-'))
+      artworks.some((a) => (a.imageUrl || '').includes('unsplash.com') || (a.id || '').startsWith('faf-'))
     );
   }, [artworks]);
 
@@ -213,11 +213,11 @@ export default function App() {
         // Search query
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim();
-          const matchesTitle = art.title.toLowerCase().includes(q);
-          const matchesMedium = art.medium.toLowerCase().includes(q);
-          const matchesSku = art.sku.toLowerCase().includes(q);
-          const matchesTags = art.tags.some((t) => t.toLowerCase().includes(q));
-          const matchesDesc = art.description.toLowerCase().includes(q);
+          const matchesTitle = (art.title || '').toLowerCase().includes(q);
+          const matchesMedium = (art.medium || '').toLowerCase().includes(q);
+          const matchesSku = (art.sku || '').toLowerCase().includes(q);
+          const matchesTags = (art.tags || []).some((t) => (t || '').toLowerCase().includes(q));
+          const matchesDesc = (art.description || '').toLowerCase().includes(q);
           return matchesTitle || matchesMedium || matchesSku || matchesTags || matchesDesc;
         }
 

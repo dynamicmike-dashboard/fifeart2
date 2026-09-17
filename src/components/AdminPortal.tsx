@@ -715,10 +715,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         return adminStatusFilter === 'All' || a.status === adminStatusFilter;
       }
       const matchesSearch =
-        a.title.toLowerCase().includes(q) ||
-        a.sku.toLowerCase().includes(q) ||
+        (a.title || '').toLowerCase().includes(q) ||
+        (a.sku || '').toLowerCase().includes(q) ||
         (a.orderNumber && a.orderNumber.toLowerCase().includes(q)) ||
-        a.medium.toLowerCase().includes(q) ||
+        (a.medium || '').toLowerCase().includes(q) ||
         (a.orientation && a.orientation.toLowerCase().includes(q)) ||
         (a.date && a.date.toLowerCase().includes(q)) ||
         (a.subjects && a.subjects.some((s) => s.toLowerCase().includes(q))) ||

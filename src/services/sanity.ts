@@ -148,9 +148,14 @@ export async function createArtworkInSanity(input: ArtworkInput, imageFile?: Fil
     {create: {...docFields(input, teableId), image: {_type: 'image', asset: {_type: 'reference', _ref: assetId}}}},
   ]);
   const result = data.results?.[0];
+  // Never allow an undefined id into app state — that white-screens the gallery.
+  const newId =
+    (typeof result?.id === 'string' && result.id) ||
+    (typeof result?.document?._id === 'string' && result.document._id) ||
+    `faf-recovered-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   return {
     ...input,
-    id: result?.id as string,
+    id: newId,
     createdAt: new Date().toISOString(),
     imageUrl: buildImageUrl(assetId, input.imageUrl),
   };

@@ -19,12 +19,15 @@ export const IS_CUSTOM_ADMIN_PASSWORD_SET = Boolean(
 
 export const StorageService = {
   isPlaceholderArtwork(artwork: Artwork): boolean {
+    // Defensive: entries from older imports/saves may miss fields — never throw.
+    const id = (artwork as Partial<Artwork>)?.id ?? '';
+    const imageUrl = (artwork as Partial<Artwork>)?.imageUrl ?? '';
     return (
-      artwork.id.startsWith('faf-base-') ||
-      artwork.id.startsWith('faf-sample-') ||
-      artwork.id.startsWith('faf-gen-') ||
-      artwork.imageUrl.includes('images.unsplash.com') ||
-      artwork.imageUrl.includes('photo-1544816155-12df9643f363')
+      id.startsWith('faf-base-') ||
+      id.startsWith('faf-sample-') ||
+      id.startsWith('faf-gen-') ||
+      imageUrl.includes('images.unsplash.com') ||
+      imageUrl.includes('photo-1544816155-12df9643f363')
     );
   },
 
@@ -34,7 +37,17 @@ export const StorageService = {
       if (stored !== null) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
-          return parsed;
+          // Sanitize: drop non-objects and coerce critical fields so a single
+          // malformed entry can never white-screen the gallery render.
+          return parsed
+            .filter((a) => a && typeof a === 'object')
+            .map((a) => ({
+              ...a,
+              id: typeof a.id === 'string' && a.id ? a.id : `faf-recovered-${Math.random().toString(36).slice(2, 10)}`,
+              imageUrl: typeof a.imageUrl === 'string' ? a.imageUrl : '',
+              title: typeof a.title === 'string' ? a.title : 'Untitled',
+              tags: Array.isArray(a.tags) ? a.tags : [],
+            })) as Artwork[];
         }
       }
     } catch (e) {
